@@ -13,6 +13,7 @@ async function connectToDb() {
         db = client.db('hope-app');
         // Create indexes for searching
         await db.collection('media').createIndex({ title: 'text', hashtags: 'text' });
+        await db.collection('playlists').createIndex({ name: 1 });
         return db;
     } catch (err) {
         console.error('Failed to connect to MongoDB', err);

@@ -99,6 +99,7 @@
         <div class="tab" onclick="switchTab('home')">Home</div>
         <div class="tab" onclick="switchTab('theater')">Theater</div>
         <div class="tab active" onclick="switchTab('media')">Media Player</div>
+        <div class="tab" onclick="switchTab('playlists')">Playlist</div>
         <div class="tab" onclick="switchTab('debug')">Debug</div>
     </div>
 
@@ -135,6 +136,15 @@
         </div>
     </div>
 
+    <div id="playlists" class="tab-content">
+        <h2>Playlists</h2>
+        <div style="display:flex; gap:5px; margin-bottom:10px;">
+            <input type="text" id="new-playlist-name" placeholder="New playlist name">
+            <button id="create-playlist-btn">Create</button>
+        </div>
+        <div id="playlist-list"></div>
+    </div>
+
     <div id="debug" class="tab-content">
         <h2>Debug Logs</h2>
         <pre id="log-area" style="overflow-y: auto; height: 100%; background: #f8f8f8; padding: 10px; border: 1px solid #ddd;"></pre>
@@ -144,6 +154,7 @@
         // Global state
         let logs = [];
         let allMediaData = null;
+        let playlistsData = [];
 
         // Tab switching
         function switchTab(tabId) {
@@ -154,6 +165,8 @@
             
             if (tabId === 'media') {
                 loadMediaData();
+            } else if (tabId === 'playlists') {
+                loadPlaylists();
             }
         }
 
@@ -194,6 +207,16 @@
                 renderMedia(data);
             } catch (err) {
                 logMessage(`Error loading media data: ${err}`);
+            }
+        }
+
+        async function loadPlaylists() {
+            try {
+                const pls = await window.electron.getPlaylists();
+                playlistsData = pls;
+                renderPlaylists();
+            } catch (err) {
+                logMessage(`Error loading playlists: ${err}`);
             }
         }
 
@@ -257,6 +280,33 @@
                     `;
                     linksList.appendChild(itemDiv);
                 }
+            });
+        }
+
+        function renderPlaylists() {
+            const container = document.getElementById('playlist-list');
+            container.innerHTML = '';
+            playlistsData.forEach(pl => {
+                const details = document.createElement('details');
+                const summary = document.createElement('summary');
+                summary.textContent = pl.name;
+                details.appendChild(summary);
+                const ul = document.createElement('ul');
+                (pl.items || []).forEach(id => {
+                    const item = allMediaData?.media.find(m => m._id === id.toString());
+                    if (item && !item.hashtags.includes('fullmedia')) {
+                        const li = document.createElement('li');
+                        li.textContent = item.title;
+                        ul.appendChild(li);
+                    }
+                });
+                const shuffleBtn = document.createElement('button');
+                shuffleBtn.textContent = 'Shuffle';
+                shuffleBtn.className = 'shuffle-playlist-btn';
+                shuffleBtn.dataset.plId = pl._id;
+                details.appendChild(shuffleBtn);
+                details.appendChild(ul);
+                container.appendChild(details);
             });
         }
 
@@ -389,6 +439,23 @@
             }
         });
 
+        document.getElementById('create-playlist-btn').addEventListener('click', async () => {
+            const input = document.getElementById('new-playlist-name');
+            const name = input.value.trim();
+            if (name) {
+                window.electron.createPlaylist(name);
+                input.value = '';
+            }
+        });
+
+        document.getElementById('playlists').addEventListener('click', async (e) => {
+            if (e.target.classList.contains('shuffle-playlist-btn')) {
+                const plId = e.target.dataset.plId;
+                await window.electron.shufflePlaylist(plId);
+                loadPlaylists();
+            }
+        });
+
         // Search functionality
         document.getElementById('search-box').addEventListener('input', (e) => {
             const query = e.target.value.trim().toLowerCase();
@@ -417,6 +484,10 @@
             renderMedia(data);
         });
 
+        window.electron.ipcRenderer.on('playlists-updated', () => {
+            loadPlaylists();
+        });
+
         // Listen for debug messages from main process
         window.electron.ipcRenderer.on('debug-log', (event, msg) => {
             logMessage(`[Main] ${msg}`);
@@ -426,6 +497,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             logMessage('Application initialized');
             switchTab('media');
+            loadPlaylists();
         });
     </script>
 </body>

@@ -23,7 +23,7 @@ TELEGRAM_BOT_TOKEN=your-bot-token
 TELEGRAM_CHAT_ID=your-chat-id
 ```
 
-3. Ensure your MongoDB service is running.
+3. Ensure your MongoDB service is running. The application and maintenance scripts use a database named `hope-app`.
 
 4. Start the application:
 

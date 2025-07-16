@@ -1,6 +1,6 @@
-const { ipcRenderer, desktopCapturer } = require('electron');
+const { contextBridge, ipcRenderer, desktopCapturer } = require('electron');
 
-window.electron = {
+contextBridge.exposeInMainWorld('electron', {
   ipcRenderer,
   desktopCapturer,
   getStreamBase: () => ipcRenderer.invoke('get-stream-base'),
@@ -15,5 +15,11 @@ window.electron = {
   deleteLink: (url) => ipcRenderer.send('delete-link', url),
   deleteLocalFile: (filename) => ipcRenderer.send('delete-local-file', filename),
   addHashtag: (data) => ipcRenderer.send('add-hashtag', data),
-  searchMedia: (query) => ipcRenderer.invoke('search-media', query)
-}; 
+  searchMedia: (query) => ipcRenderer.invoke('search-media', query),
+  getPlaylists: () => ipcRenderer.invoke('get-playlists'),
+  createPlaylist: (name) => ipcRenderer.send('create-playlist', name),
+  addToPlaylist: (plId, itemId) => ipcRenderer.send('add-to-playlist', { plId, itemId }),
+  removeFromPlaylist: (plId, itemId) => ipcRenderer.send('remove-from-playlist', { plId, itemId }),
+  reorderPlaylist: (plId, order) => ipcRenderer.send('reorder-playlist', { plId, order }),
+  shufflePlaylist: (plId) => ipcRenderer.invoke('shuffle-playlist', plId)
+});
