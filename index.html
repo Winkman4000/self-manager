@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard App</title>
+    <style>
+        body { 
+            margin: 0; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh; 
+            font-family: Arial, sans-serif; 
+            background-color: #f4f4f9; 
+            color: #333; 
+        }
+        .tabs { 
+            display: flex; 
+            background: #333; 
+            color: white; 
+        }
+        .tab { 
+            padding: 10px 20px; 
+            cursor: pointer; 
+            user-select: none; 
+        }
+        .tab.active { 
+            background: #555; 
+        }
+        .tab-content { 
+            flex: 1; 
+            display: none; 
+            flex-direction: column; 
+            padding: 15px; 
+            overflow-y: auto; 
+        }
+        .tab-content.active { 
+            display: flex; 
+        }
+        .url-bar { 
+            display: flex; 
+            gap: 5px; 
+            margin-bottom: 10px; 
+        }
+        h1, h2 { 
+            border-bottom: 2px solid #ccc; 
+            padding-bottom: 5px; 
+            margin-top: 20px; 
+        }
+        button { 
+            padding: 8px 12px; 
+            border: none; 
+            background-color: #555; 
+            color: white; 
+            cursor: pointer; 
+            border-radius: 4px; 
+        }
+        button:hover { 
+            background-color: #777; 
+        }
+        button:disabled { 
+            background-color: #aaa; 
+            cursor: not-allowed; 
+        }
+        input[type="text"], input[type="search"] { 
+            padding: 8px; 
+            border: 1px solid #ccc; 
+            border-radius: 4px; 
+            flex: 1; 
+            box-sizing: border-box; 
+        }
+        .media-item { 
+            background: white; 
+            padding: 10px; 
+            border-radius: 4px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); 
+            margin-bottom: 10px; 
+        }
+        webview { 
+            flex: 1; 
+            border: 1px solid #ccc; 
+        }
+        .button-group {
+            display: flex;
+            gap: 5px;
+        }
+        .tag-form {
+            display: flex;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        .hashtags {
+            font-size: 0.9em;
+            color: #555;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="tabs">
+        <div class="tab" onclick="switchTab('home')">Home</div>
+        <div class="tab" onclick="switchTab('theater')">Theater</div>
+        <div class="tab active" onclick="switchTab('media')">Media Player</div>
+        <div class="tab" onclick="switchTab('debug')">Debug</div>
+    </div>
+
+    <div id="home" class="tab-content">
+        <h1>Welcome to the Dashboard</h1>
+    </div>
+
+    <div id="theater" class="tab-content">
+        <div class="url-bar">
+            <input type="text" id="url-input" placeholder="Enter URL">
+            <button onclick="loadURL()">Go</button>
+        </div>
+        <webview id="webview" src="about:blank"></webview>
+    </div>
+
+    <div id="media" class="tab-content active">
+        <h2>Saved Links</h2>
+        <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+            <input type="text" id="new-link-input" placeholder="Paste YouTube URL">
+            <button id="add-link-btn" disabled>Add</button>
+        </div>
+        <div style="margin-bottom: 10px;">
+            <input type="search" id="search-box" placeholder="Search by title or #hashtag">
+        </div>
+        <div id="link-list"></div>
+
+        <h2>Recorded Media</h2>
+        <p>Total size on disk: <span id="total-size">0 MB</span></p>
+        <div id="media-list"></div>
+
+        <div id="player-container" style="width: 100%; margin-top: 10px;">
+            <video id="media-player" controls style="width: 100%; background-color: #000; display: none;"></video>
+            <audio id="audio-player" controls style="width: 100%; display: none;"></audio>
+        </div>
+    </div>
+
+    <div id="debug" class="tab-content">
+        <h2>Debug Logs</h2>
+        <pre id="log-area" style="overflow-y: auto; height: 100%; background: #f8f8f8; padding: 10px; border: 1px solid #ddd;"></pre>
+    </div>
+
+    <script>
+        // Global state
+        let logs = [];
+        let allMediaData = null;
+
+        // Tab switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.tab[onclick*="${tabId}"]`).classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+            
+            if (tabId === 'media') {
+                loadMediaData();
+            }
+        }
+
+        // Theater tab functionality
+        function loadURL() {
+            const input = document.getElementById('url-input');
+            let url = input.value.trim();
+            if (!url) return;
+            if (!/^https?:\/\//i.test(url)) {
+                url = 'https://' + url;
+            }
+            const webview = document.getElementById('webview');
+            webview.loadURL(url);
+        }
+
+        // Logging
+        function logMessage(msg) {
+            const timestamp = new Date().toISOString();
+            const message = `${timestamp} - ${msg}`;
+            logs.push(message);
+            console.log(message);
+            
+            const logArea = document.getElementById('log-area');
+            if (logArea) {
+                logArea.textContent = logs.join('\n');
+                logArea.scrollTop = logArea.scrollHeight;
+            }
+            
+            // Forward to main process
+            window.electron.ipcRenderer.send('debug-log-renderer', `[Renderer] ${msg}`);
+        }
+
+        // Data loading
+        async function loadMediaData() {
+            try {
+                const data = await window.electron.getLinks();
+                allMediaData = data;
+                renderMedia(data);
+            } catch (err) {
+                logMessage(`Error loading media data: ${err}`);
+            }
+        }
+
+        // Render media items
+        function renderMedia(data) {
+            const linksList = document.getElementById('link-list');
+            const mediaList = document.getElementById('media-list');
+            const totalSizeSpan = document.getElementById('total-size');
+
+            // Clear existing content
+            linksList.innerHTML = '';
+            mediaList.innerHTML = '';
+
+            // Update total size
+            const totalSizeMB = (data.totalSize / 1024 / 1024).toFixed(2);
+            totalSizeSpan.textContent = `${totalSizeMB} MB`;
+
+            // Render each media item
+            data.media.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'media-item';
+                itemDiv.setAttribute('data-id', item._id);
+                itemDiv.setAttribute('data-url', item.url || '');
+
+                const hashtags = (item.hashtags || []).map(tag => `#${tag}`).join(' ');
+
+                if (item.isDownloaded) {
+                    // Downloaded media template
+                    itemDiv.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong>${item.title}</strong>
+                                <div class="hashtags">${hashtags}</div>
+                            </div>
+                            <div class="button-group">
+                                <button class="play-local-btn">Play</button>
+                                <button class="delete-btn">Delete</button>
+                            </div>
+                        </div>
+                    `;
+                    mediaList.appendChild(itemDiv);
+                } else {
+                    // Saved links template
+                    itemDiv.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong>${item.title}</strong>
+                                <div class="hashtags">${hashtags}</div>
+                            </div>
+                            <div class="button-group">
+                                <button class="play-stream-btn">Play Stream</button>
+                                <button class="download-audio-btn">Download Audio</button>
+                                <button class="download-video-btn">Download Video</button>
+                                <button class="delete-btn">Delete</button>
+                            </div>
+                        </div>
+                        <div class="tag-form">
+                            <input type="text" class="add-tag-input" placeholder="Add #tag">
+                            <button class="add-tag-btn">Add Tag</button>
+                        </div>
+                    `;
+                    linksList.appendChild(itemDiv);
+                }
+            });
+        }
+
+        // Event delegation for media interactions
+        document.getElementById('media').addEventListener('click', async (e) => {
+            const itemDiv = e.target.closest('.media-item');
+            if (!itemDiv) return;
+
+            const id = itemDiv.getAttribute('data-id');
+            const url = itemDiv.getAttribute('data-url');
+            const player = document.getElementById('media-player');
+
+            try {
+                if (e.target.classList.contains('play-local-btn')) {
+                    // Play downloaded file
+                    const item = allMediaData.media.find(m => m._id === id);
+                    logMessage(`Play button clicked for ID: ${id}`);
+                    logMessage(`Found item: ${item ? 'YES' : 'NO'}`);
+                    if (item) {
+                        logMessage(`Item localPath: ${item.localPath}`);
+                        logMessage(`Item isDownloaded: ${item.isDownloaded}`);
+                    }
+                    if (item && item.isDownloaded) {
+                        logMessage(`Playing downloaded media for item: ${item.title}`);
+                        const streamBase = await window.electron.getStreamBase();
+                        const srcUrl = streamBase + `audio/${item._id}`;
+                        
+                        // Default to webm audio if no extension specified
+                        const mimeType = item.fileExtension === '.mp3' ? 'audio/mpeg' : 
+                                        item.fileExtension === '.webm' ? 'audio/webm' : 
+                                        item.fileExtension === '.mp4' ? 'video/mp4' : 'audio/webm';
+                        
+                        const videoPlayer = document.getElementById('media-player');
+                        const audioPlayer = document.getElementById('audio-player');
+
+                        // Stop and hide both players
+                        videoPlayer.pause();
+                        videoPlayer.style.display = 'none';
+                        audioPlayer.pause();
+                        audioPlayer.style.display = 'none';
+
+                        // Choose player based on file type
+                        let player;
+                        if (mimeType.startsWith('video/')) {
+                            player = videoPlayer;
+                        } else {
+                            player = audioPlayer;
+                        }
+
+                        player.innerHTML = '';
+                        const source = document.createElement('source');
+                        source.src = srcUrl;
+                        source.type = mimeType;
+                        player.appendChild(source);
+                        player.style.display = 'block';
+                        player.load();
+                        player.play().catch(err => logMessage(`Playback error: ${err.message}`));
+                        player.onerror = () => logMessage(`Player error: ${player.error.message}`);
+                    } else {
+                        logMessage(`Item not downloaded or not found`);
+                    }
+                } else if (e.target.classList.contains('play-stream-btn')) {
+                    // Stream from YouTube
+                    logMessage(`Requesting stream for ${url}`);
+                    const streamUrl = await window.electron.getStreamURL(url);
+                    if (streamUrl) {
+                        player.src = streamUrl;
+                        player.play();
+                    } else {
+                        logMessage(`Failed to get stream URL for ${url}`);
+                    }
+                } else if (e.target.classList.contains('download-audio-btn')) {
+                    // Download audio
+                    e.target.disabled = true;
+                    e.target.textContent = 'Downloading...';
+                    logMessage(`Requesting audio download for item ${id}`);
+                    window.electron.ipcRenderer.send('download-audio', id);
+                } else if (e.target.classList.contains('download-video-btn')) {
+                    // Download video
+                    e.target.disabled = true;
+                    e.target.textContent = 'Downloading...';
+                    logMessage(`Requesting video download for item ${id}`);
+                    window.electron.ipcRenderer.send('download-video', id);
+                } else if (e.target.classList.contains('delete-btn')) {
+                    // Delete item without extra confirmation popup
+                    logMessage(`Deleting media item: ${id}`);
+                    window.electron.ipcRenderer.send('delete-media', id);
+                } else if (e.target.classList.contains('add-tag-btn')) {
+                    // Add hashtag
+                    const input = itemDiv.querySelector('.add-tag-input');
+                    const tags = input.value.trim().split(/\s+/).filter(tag => tag);
+                    for (const tag of tags) {
+                        const prefixedTag = '#' + tag.replace(/#/g, '').trim();
+                        if (prefixedTag.length > 1) { // skip if empty
+                            logMessage(`Adding tag "${prefixedTag}" to item ${id}`);
+                            window.electron.addHashtag({ id, tag: prefixedTag.slice(1) });
+                        }
+                    }
+                    input.value = '';
+                }
+            } catch (err) {
+                logMessage(`Error handling action: ${err}`);
+            }
+        });
+
+        // Manual link addition
+        const newLinkInput = document.getElementById('new-link-input');
+        const addLinkBtn = document.getElementById('add-link-btn');
+
+        newLinkInput.addEventListener('input', () => {
+            addLinkBtn.disabled = !newLinkInput.value.trim();
+        });
+
+        addLinkBtn.addEventListener('click', async () => {
+            const url = newLinkInput.value.trim();
+            if (url) {
+                addLinkBtn.disabled = true;
+                addLinkBtn.textContent = 'Adding...';
+                try {
+                    const title = await window.electron.fetchTitle(url);
+                    await window.electron.storeLink({ url, title });
+                    newLinkInput.value = '';
+                    logMessage(`Added new link: ${title}`);
+                } catch (err) {
+                    logMessage(`Error adding link: ${err}`);
+                } finally {
+                    addLinkBtn.disabled = false;
+                    addLinkBtn.textContent = 'Add';
+                }
+            }
+        });
+
+        // Search functionality
+        document.getElementById('search-box').addEventListener('input', (e) => {
+            const query = e.target.value.trim().toLowerCase();
+            if (!allMediaData) return;
+
+            if (!query) {
+                renderMedia(allMediaData);
+                return;
+            }
+
+            const filteredMedia = allMediaData.media.filter(item => {
+                const titleMatch = item.title.toLowerCase().includes(query);
+                const tagMatch = item.hashtags.some(tag => 
+                    tag.toLowerCase().includes(query.replace(/#/g, ''))
+                );
+                return titleMatch || tagMatch;
+            });
+
+            renderMedia({ media: filteredMedia, totalSize: allMediaData.totalSize });
+        });
+
+        // Listen for updates from main process
+        window.electron.ipcRenderer.on('links-updated', (event, data) => {
+            logMessage('Received links-updated event from main process');
+            allMediaData = data;
+            renderMedia(data);
+        });
+
+        // Listen for debug messages from main process
+        window.electron.ipcRenderer.on('debug-log', (event, msg) => {
+            logMessage(`[Main] ${msg}`);
+        });
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', () => {
+            logMessage('Application initialized');
+            switchTab('media');
+        });
+    </script>
+</body>
+</html> 
