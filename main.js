@@ -17,7 +17,7 @@ function createWindow() {
     height: 600,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false,
+      contextIsolation: true,
       webviewTag: true,
       preload: path.join(__dirname, 'preload.js')
     }
@@ -543,6 +543,64 @@ app.whenReady().then(async () => {
           results = await media.find({ $text: { $search: query } }).toArray();
       }
       return results.map(item => ({ ...item, _id: item._id.toString() }));
+  });
+
+  // Playlist handlers
+  ipcMain.handle('get-playlists', async () => {
+      const pls = await getDb().collection('playlists')
+          .find({})
+          .sort({ createdAt: -1 })
+          .toArray();
+      return pls.map(p => ({ ...p, _id: p._id.toString() }));
+  });
+
+  ipcMain.on('create-playlist', async (event, name) => {
+      await getDb().collection('playlists').insertOne({
+          name,
+          items: [],
+          createdAt: new Date()
+      });
+      event.reply('playlists-updated');
+  });
+
+  ipcMain.on('add-to-playlist', async (event, { plId, itemId }) => {
+      await getDb().collection('playlists').updateOne(
+          { _id: new ObjectId(plId) },
+          { $addToSet: { items: new ObjectId(itemId) } }
+      );
+      event.reply('playlists-updated');
+  });
+
+  ipcMain.on('remove-from-playlist', async (event, { plId, itemId }) => {
+      await getDb().collection('playlists').updateOne(
+          { _id: new ObjectId(plId) },
+          { $pull: { items: new ObjectId(itemId) } }
+      );
+      event.reply('playlists-updated');
+  });
+
+  ipcMain.on('reorder-playlist', async (event, { plId, order }) => {
+      const objectIds = order.map(id => new ObjectId(id));
+      await getDb().collection('playlists').updateOne(
+          { _id: new ObjectId(plId) },
+          { $set: { items: objectIds } }
+      );
+      event.reply('playlists-updated');
+  });
+
+  ipcMain.handle('shuffle-playlist', async (event, plId) => {
+      const pl = await getDb().collection('playlists').findOne({ _id: new ObjectId(plId) });
+      if (!pl) return [];
+      const items = pl.items.slice();
+      for (let i = items.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [items[i], items[j]] = [items[j], items[i]];
+      }
+      await getDb().collection('playlists').updateOne(
+          { _id: new ObjectId(plId) },
+          { $set: { items } }
+      );
+      return items.map(id => id.toString());
   });
 });
 

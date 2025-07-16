@@ -7,7 +7,7 @@ async function cleanup() {
         await client.connect();
         console.log('Connected to MongoDB');
         
-        const db = client.db('hope');
+        const db = client.db('hope-app');
         const media = db.collection('media');
         
         // Remove localPath field from all entries
